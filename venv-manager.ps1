@@ -79,6 +79,14 @@ function cenv {
         $activate = Read-Host "Activate it now? (Y/n)"
         if ($activate -eq "" -or $activate -eq "y") {
             act -Name $Name
+
+            # Prompt to install requirements if present
+            if (Test-Path "requirements.txt") {
+                $installReqs = Read-Host "Found 'requirements.txt'. Install dependencies now? (Y/n)"
+                if ($installReqs -eq "" -or $installReqs -match '^[Yy]$') {
+                    ienv
+                }
+            }
         }
     } else {
         Write-Host "Failed to create virtual environment. Ensure Python is installed and in your PATH." -ForegroundColor Red
@@ -97,12 +105,12 @@ function denv {
     }
 
     # 2. Get local environments using our helper
-    $venvs = Get-LocalVenvs
+    $venvs = @(Get-LocalVenvs)
     $targetEnv = $null
 
     if ($Name) {
         # Find explicit match
-        $targetEnv = $venvs | Where-Object { $_.Name -eq $Name }
+        $targetEnv = $venvs | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
     } elseif ($venvs.Count -eq 1) {
         # Fallback to the single available environment
         $targetEnv = $venvs[0]
@@ -138,5 +146,50 @@ function denv {
         Write-Host "Environment '$($targetEnv.Name)' successfully deleted." -ForegroundColor Green
     } else {
         Write-Host "Destruction cancelled." -ForegroundColor Yellow
+    }
+}
+
+function ienv {
+    param(
+        [string]$File = "requirements.txt",
+        [switch]$UpgradePip
+    )
+
+    # 1. Verify an environment is currently active
+    if (-not $env:VIRTUAL_ENV) {
+        Write-Host "No active virtual environment detected." -ForegroundColor Yellow
+        $activateFirst = Read-Host "Would you like to activate one first? (Y/n)"
+        if ($activateFirst -eq "" -or $activateFirst -match '^[Yy]$') {
+            act
+            # Re-check activation after 'act' runs
+            if (-not $env:VIRTUAL_ENV) {
+                Write-Host "Cannot install dependencies without an active environment." -ForegroundColor Red
+                return
+            }
+        } else {
+            return
+        }
+    }
+
+    # 2. Check if the requirements file exists
+    if (-not (Test-Path $File)) {
+        Write-Host "Requirements file '$File' not found in the current directory." -ForegroundColor Red
+        return
+    }
+
+    # 3. Optional/Recommended: Ensure pip is up to date
+    if ($UpgradePip) {
+        Write-Host "Upgrading pip..." -ForegroundColor Cyan
+        python -m pip install --upgrade pip
+    }
+
+    # 4. Install dependencies
+    Write-Host "Installing dependencies from '$File' into '$($env:VIRTUAL_ENV)'..." -ForegroundColor Cyan
+    python -m pip install -r $File
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "All dependencies installed successfully!" -ForegroundColor Green
+    } else {
+        Write-Host "An error occurred while installing dependencies." -ForegroundColor Red
     }
 }
